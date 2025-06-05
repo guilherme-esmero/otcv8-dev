@@ -11,11 +11,10 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
       with:
-          submodules: recursive
+        submodules: recursive
 
-    - name: Setup MSBuild and add to PATH
+    - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1.0.2
-      id: setup_msbuild
 
     - name: Run vcpkg
       uses: lukka/run-vcpkg@v7
@@ -29,32 +28,32 @@ jobs:
 
     - name: Integrate vcpkg
       run: |
-        ${{ runner.workspace }}/vcpkg/vcpkg integrate install
+        & "${{ runner.workspace }}/vcpkg/vcpkg" integrate install
         
     - name: Compile otclient_dx
       timeout-minutes: 20
       run: |
         cd vc16
-        MSBuild /property:Configuration=DirectX /p:BUILD_REVISION=${{github.run_number}}
+        msbuild /property:Configuration=DirectX /p:BUILD_REVISION=${{github.run_number}}
         
     - name: Compile otclient_gl
       timeout-minutes: 20
       run: |
         cd vc16
-        MSBuild /property:Configuration=OpenGL /p:BUILD_REVISION=${{github.run_number}}
+        msbuild /property:Configuration=OpenGL /p:BUILD_REVISION=${{github.run_number}}
 
     #- name: Sign binaries
     #  run: |
-    #     .\tools\sign\signtool.exe sign /f .\tools\sign\certificate.pfx /p ${{ secrets.SIGN_PASSWORD }} /fd SHA256 /t http://timestamp.digicert.com /d "OTclientV8" otclient_gl.exe
-    #     .\tools\sign\signtool.exe sign /f .\tools\sign\certificate.pfx /p ${{ secrets.SIGN_PASSWORD }} /fd SHA256 /t http://timestamp.digicert.com /d "OTclientV8" otclient_dx.exe
+    #    & ".\tools\sign\signtool.exe" sign /f ".\tools\sign\certificate.pfx" /p "${{ secrets.SIGN_PASSWORD }}" /fd SHA256 /t http://timestamp.digicert.com /d "OTclientV8" otclient_gl.exe
+    #    & ".\tools\sign\signtool.exe" sign /f ".\tools\sign\certificate.pfx" /p "${{ secrets.SIGN_PASSWORD }}" /fd SHA256 /t http://timestamp.digicert.com /d "OTclientV8" otclient_dx.exe
 
     - name: Upload binaries
-      uses: 'actions/upload-artifact@v2'
+      uses: actions/upload-artifact@v4
       with:
-        name: Download-binaries
+        name: Windows-binaries
         path: |
-          otclient_gl.exe
-          otclient_dx.exe
+          vc16/otclient_gl.exe
+          vc16/otclient_dx.exe
         if-no-files-found: error
 
   Android:
@@ -66,11 +65,10 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
       with:
-          submodules: recursive
+        submodules: recursive
 
-    - name: Setup MSBuild and add to PATH
+    - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1.0.2
-      id: setup_msbuild
 
     - name: Create data.zip for android
       run: |
@@ -80,45 +78,41 @@ jobs:
       run: |
         7z x android_libs.7z -aoa -oC:\android
 
-    - name: Install android
+    - name: Install android NDK
       run: |
         $sdkRoot = "C:\Android\android-sdk"
         $sdkManager = "$sdkRoot\cmdline-tools\latest\bin\sdkmanager.bat"
-        Install-AndroidSDKPackages -AndroidSDKManagerPath $sdkManager `
-                                  -AndroidSDKRootPath $sdkRoot `
-                                  -AndroidPackages "ndk;21.4.7075529"
+        & $sdkManager "ndk;21.4.7075529" --sdk_root=$sdkRoot
 
     - name: Build for android
       timeout-minutes: 25
       run: |
         cd android
         $env:VS_NdkRoot="C:\Android\android-sdk\ndk\21.4.7075529"
-        MSBuild.exe /p:Configuration=Release /p:Platform="ARM64" /p:BUILD_REVISION=${{github.run_number}}
+        msbuild /p:Configuration=Release /p:Platform="ARM64" /p:BUILD_REVISION=${{github.run_number}}
 
     - name: Upload binaries
-      uses: 'actions/upload-artifact@v2'
+      uses: actions/upload-artifact@v4
       with:
-        name: Download-binaries
-        path: |
-          otclientv8.apk
+        name: Android-binaries
+        path: android/otclientv8.apk
         if-no-files-found: error
 
   Mac:
     name: Build mac os version
-    runs-on: 	macos-11
+    runs-on: macos-11
     timeout-minutes: 120
 
     steps:
     - name: Checkout
       uses: actions/checkout@v2
       with:
-          submodules: recursive
+        submodules: recursive
 
-    - name: Get latest CMake
-      uses: lukka/get-cmake@latest
-
-    - name: MacOS - install physfs pkgconfig luajit xquartz
-      run: brew install physfs pkgconfig luajit xquartz
+    - name: Install dependencies
+      run: |
+        brew update
+        brew install physfs pkgconfig luajit xquartz
 
     - name: Run vcpkg
       uses: lukka/run-vcpkg@v7
@@ -135,20 +129,19 @@ jobs:
       uses: lukka/run-cmake@v3
       with:
         buildDirectory: ${{ runner.workspace }}/build
-        cmakeAppendedArgs: '-G Ninja -DCMAKE_BUILD_TYPE="Release" -DVERSION=${{github.run_number}}'
-        cmakeListsOrSettingsJson: CMakeListsTxtAdvanced
+        cmakeAppendedArgs: '-G Ninja -DCMAKE_BUILD_TYPE=Release -DVERSION=${{github.run_number}}'
+        cmakeListsOrSettingsJson: CMakeLists.txt
         useVcpkgToolchainFile: true
 
-    - name: Change name
+    - name: Rename binary
       run: |
-        mv '${{ runner.workspace }}/build/otclient' '${{ runner.workspace }}/build/otclient_mac'
+        mv "${{ runner.workspace }}/build/otclient" "${{ runner.workspace }}/build/otclient_mac"
 
-    - name: Upload otclient
-      uses: actions/upload-artifact@v2
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
       with:
-        name: Download-binaries
-        path: |
-          ${{ runner.workspace }}/build/otclient_mac
+        name: MacOS-binary
+        path: ${{ runner.workspace }}/build/otclient_mac
         if-no-files-found: error
 
   Linux:
@@ -160,13 +153,12 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
       with:
-          submodules: recursive
+        submodules: recursive
 
-    - name: Get latest CMake
-      uses: lukka/get-cmake@latest
-
-    - name: Ubuntu - install opengl lua5.1 luajit
-      run: sudo apt update && sudo apt install -y libglew-dev liblua5.1-0-dev libluajit-5.1-dev
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libglew-dev liblua5.1-0-dev libluajit-5.1-dev ninja-build
 
     - name: Run vcpkg
       uses: lukka/run-vcpkg@v7
@@ -183,18 +175,17 @@ jobs:
       uses: lukka/run-cmake@v3
       with:
         buildDirectory: ${{ runner.workspace }}/build
-        cmakeAppendedArgs: '-G Ninja -DCMAKE_BUILD_TYPE="Release" -DVERSION=${{github.run_number}}'
-        cmakeListsOrSettingsJson: CMakeListsTxtAdvanced
+        cmakeAppendedArgs: '-G Ninja -DCMAKE_BUILD_TYPE=Release -DVERSION=${{github.run_number}}'
+        cmakeListsOrSettingsJson: CMakeLists.txt
         useVcpkgToolchainFile: true
 
-    - name: Change name
+    - name: Rename binary
       run: |
-        mv '${{ runner.workspace }}/build/otclient' '${{ runner.workspace }}/build/otclient_linux'
+        mv "${{ runner.workspace }}/build/otclient" "${{ runner.workspace }}/build/otclient_linux"
 
-    - name: Upload otclient
-      uses: actions/upload-artifact@v2
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
       with:
-        name: Download-binaries
-        path: |
-          ${{ runner.workspace }}/build/otclient_linux
+        name: Linux-binary
+        path: ${{ runner.workspace }}/build/otclient_linux
         if-no-files-found: error
